@@ -30,6 +30,18 @@ db.ExamSet.belongsTo(db.File, { foreignKey: 'model_answer_file_id', as: 'ModelAn
 db.File.hasOne(db.ExamSet, { foreignKey: 'question_paper_file_id' });
 db.File.hasOne(db.ExamSet, { foreignKey: 'model_answer_file_id' });
 
+db.Submission.belongsTo(db.ExamSet, { foreignKey: 'exam_set_id' });
+db.ExamSet.hasMany(db.Submission, { foreignKey: 'exam_set_id' });
+
+db.Submission.belongsTo(db.File, { foreignKey: 'answer_paper_file_id' });
+db.File.hasOne(db.Submission, { foreignKey: 'answer_paper_file_id' });
+
+db.EvaluationResult.belongsTo(db.Submission, { foreignKey: 'submission_id' });
+db.Submission.hasMany(db.EvaluationResult, { foreignKey: 'submission_id' });
+
+db.EvaluationResult.belongsTo(db.Question, { foreignKey: 'question_id' });
+db.Question.hasMany(db.EvaluationResult, { foreignKey: 'question_id' });
+
 // Initialize associations
 Object.keys(db).forEach((modelName) => {
     if (db[modelName].associate) {

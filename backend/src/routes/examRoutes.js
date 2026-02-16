@@ -12,4 +12,7 @@ router.post('/upload-model-answer', upload.single('file'), examController.upload
 // Route for uploading student answer sheet (submission)
 router.post('/upload-student-submission', upload.single('file'), examController.uploadStudentSubmission);
 
+// Route for triggering evaluation
+router.post('/evaluate-submission/:submissionId', examController.evaluateSubmission);
+
 module.exports = router;

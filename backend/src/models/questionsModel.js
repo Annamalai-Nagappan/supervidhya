@@ -7,6 +7,8 @@ module.exports = (sequelize, DataTypes) => {
         max_marks: DataTypes.INTEGER,
         parent_question_id: DataTypes.BIGINT,
         question_no: DataTypes.STRING,
+        model_answer: DataTypes.TEXT,
+        key_points: DataTypes.JSON,
         grading_rules: DataTypes.JSON,
         isDeleted: { type: DataTypes.BOOLEAN, defaultValue: false },
         deletedAt: DataTypes.DATE

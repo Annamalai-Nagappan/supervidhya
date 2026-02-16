@@ -3,14 +3,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/card";
 import { Progress } from "@/components/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/table";
 import { Badge } from "@/components/badge";
-import { CheckCircle, AlertCircle } from "lucide-react";
-import { dummyResults } from "@/lib/dummy_data";
 
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.15 } } };
 const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0 } };
 
-const EvaluationResults = () => {
-  const { totalMarks, maxMarks, confidenceScore, answers, feedback } = dummyResults;
+interface EvaluationData {
+  results: any[];
+  totalMarks: number;
+  maxMarks: number;
+  confidenceScore: number;
+}
+
+const EvaluationResults = ({ data }: { data: EvaluationData }) => {
+  const { totalMarks, maxMarks, confidenceScore, results } = data;
   const pct = Math.round((totalMarks / maxMarks) * 100);
 
   return (
@@ -58,13 +63,13 @@ const EvaluationResults = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {answers.map((a) => (
-                  <TableRow key={a.question}>
-                    <TableCell className="font-medium">{a.question}</TableCell>
-                    <TableCell className="text-sm">{a.answer}</TableCell>
+                {results.map((r: any, idx: number) => (
+                  <TableRow key={idx}>
+                    <TableCell className="font-medium">{r.Question?.question_no || 'Q'}</TableCell>
+                    <TableCell className="text-sm line-clamp-2">{r.feedback}</TableCell>
                     <TableCell className="text-right">
-                      <Badge variant={a.marks >= a.maxMarks * 0.8 ? "default" : a.marks >= a.maxMarks * 0.5 ? "secondary" : "destructive"}>
-                        {a.marks}/{a.maxMarks}
+                      <Badge variant={r.ai_score >= r.Question?.max_marks * 0.8 ? "default" : r.ai_score >= r.Question?.max_marks * 0.5 ? "secondary" : "destructive"}>
+                        {r.ai_score}/{r.Question?.max_marks || '?'}
                       </Badge>
                     </TableCell>
                   </TableRow>
@@ -80,16 +85,15 @@ const EvaluationResults = () => {
         <Card>
           <CardHeader><CardTitle>AI Feedback</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            {feedback.map((f) => (
-              <div key={f.question} className="rounded-lg border p-4 space-y-2">
-                <p className="font-semibold">Question {f.question}</p>
+            {results.map((r: any, idx: number) => (
+              <div key={idx} className="rounded-lg border p-4 space-y-2">
+                <p className="font-semibold">Question {r.Question?.question_no || '?'}</p>
                 <div className="flex items-start gap-2 text-sm">
-                  <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
-                  <span><strong>Strengths:</strong> {f.strengths}</span>
+                  <span className="text-muted-foreground">{r.feedback}</span>
                 </div>
-                <div className="flex items-start gap-2 text-sm">
-                  <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                  <span><strong>Improve:</strong> {f.improvements}</span>
+                <div className="flex items-center gap-2 mt-2">
+                  <Badge variant="outline">{r.match_quality}</Badge>
+                  <span className="text-xs text-muted-foreground">Confidence: {Math.round(r.confidence_score * 100)}%</span>
                 </div>
               </div>
             ))}

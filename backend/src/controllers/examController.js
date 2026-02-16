@@ -1,6 +1,7 @@
-const { Exam, ExamSet, File, Question, Submission, sequelize } = require('../models/indexModel');
+const db = require('../models/indexModel');
+const { Exam, ExamSet, File, Question, Submission, EvaluationResult, sequelize } = db;
 const path = require('path');
-const { scrapeWithGemini } = require('../services/geminiService');
+const { scrapeWithGemini, evaluateStudentAnswer } = require('../services/geminiService');
 
 const uploadQuestionPaper = async (req, res) => {
     const transaction = await sequelize.transaction();
@@ -88,9 +89,6 @@ const uploadQuestionPaper = async (req, res) => {
         await examSet.update({
             question_json: scrapedQuestions
         }, { transaction });
-
-        /* -------------------- COMMIT -------------------- */
-
         await transaction.commit();
 
         return res.status(201).json({
@@ -135,9 +133,34 @@ const uploadModelAnswer = async (req, res) => {
         if (!examSet) {
             throw new Error('Exam Set not found');
         }
+        const questions = await Question.findAll({ where: { exam_set_id: examSet.id } });
+        const questionNos = questions.map(q => q.question_no);
 
-        // 3. Trigger Gemini for Answer Key
-        const scrapedAnswers = await scrapeWithGemini(req.file.path, 'model_answer');
+        // 3. Trigger Gemini for Answer Key with Expected Question Nos
+        const scrapedAnswers = await scrapeWithGemini(req.file.path, 'model_answer', questionNos);
+
+        if (!scrapedAnswers || !Array.isArray(scrapedAnswers)) {
+            throw new Error('AI returned invalid answer data');
+        }
+
+        /* -------------------- UPDATE QUESTIONS WITH MODEL ANSWERS -------------------- */
+
+        const updatePromises = scrapedAnswers.map(ans => {
+            return Question.update({
+                model_answer: ans.correct_answer || '',
+                key_points: ans.points || []
+            }, {
+                where: {
+                    exam_set_id: examSet.id,
+                    question_no: ans.question_no?.toString()
+                },
+                transaction
+            });
+        });
+
+        await Promise.all(updatePromises);
+
+        /* -------------------- UPDATE EXAM SET SNAPSHOT -------------------- */
 
         await examSet.update({
             model_answer_file_id: savedFile.id,
@@ -147,9 +170,9 @@ const uploadModelAnswer = async (req, res) => {
         await transaction.commit();
 
         res.status(200).json({
-            message: 'Model answer paper uploaded and processed by AI successfully',
+            message: 'Model answer paper uploaded and individual questions updated successfully',
             examSetId: examSet.id,
-            answers: scrapedAnswers
+            answersCount: scrapedAnswers.length
         });
 
     } catch (error) {
@@ -200,8 +223,98 @@ const uploadStudentSubmission = async (req, res) => {
     }
 };
 
+const evaluateSubmission = async (req, res) => {
+    const { submissionId } = req.params;
+
+    try {
+        const submission = await Submission.findByPk(submissionId, {
+            include: [
+                { model: ExamSet, include: [Question] },
+                { model: File }
+            ]
+        });
+
+        if (!submission) {
+            return res.status(404).json({ message: 'Submission not found' });
+        }
+
+        if (!submission.ExamSet || !submission.ExamSet.Questions) {
+            return res.status(400).json({ message: 'Exam set or questions not found for this submission' });
+        }
+
+        const questionNos = submission.ExamSet.Questions.map(q => q.question_no);
+
+        // 1. Scrape student's handwritten answers with Expected Nos
+        const studentAnswers = await scrapeWithGemini(submission.File.path, 'student_submission', questionNos);
+
+        if (!studentAnswers || !Array.isArray(studentAnswers)) {
+            throw new Error('Failed to extract answers from student paper');
+        }
+
+        const evaluationResults = [];
+
+        // 2. Evaluate each answer
+        for (const ans of studentAnswers) {
+            const question = submission.ExamSet.Questions.find(q => q.question_no === ans.question_no);
+
+            if (question) {
+                const evaluation = await evaluateStudentAnswer(
+                    question.question_text,
+                    question.model_answer,
+                    question.key_points,
+                    ans.student_answer,
+                    question.max_marks
+                );
+
+                const result = await EvaluationResult.create({
+                    submission_id: submission.id,
+                    question_id: question.id,
+                    match_quality: evaluation.match_quality,
+                    ai_score: evaluation.score,
+                    final_score: evaluation.score, // Default to AI score
+                    feedback: evaluation.feedback,
+                    confidence_score: evaluation.confidence_score,
+                    evaluated_at: new Date()
+                });
+
+                evaluationResults.push(result);
+            }
+        }
+
+        await submission.update({ status: 'evaluated' });
+
+        // Batch fetch results with Question info to return to frontend
+        const enrichedResults = await EvaluationResult.findAll({
+            where: { submission_id: submission.id },
+            include: [{ model: Question }]
+        });
+
+        const totalMarks = enrichedResults.reduce((acc, r) => acc + parseFloat(r.ai_score || 0), 0);
+        const maxMarks = submission.ExamSet.Questions.reduce((acc, q) => acc + (q.max_marks || 0), 0);
+        const avgConfidence = enrichedResults.length > 0
+            ? Math.round((enrichedResults.reduce((acc, r) => acc + parseFloat(r.confidence_score || 0), 0) / enrichedResults.length) * 100)
+            : 0;
+
+        return res.status(200).json({
+            message: 'Evaluation completed successfully',
+            totalMarks,
+            maxMarks,
+            confidenceScore: avgConfidence,
+            results: enrichedResults
+        });
+
+    } catch (error) {
+        console.error('Error during evaluation:', error);
+        return res.status(500).json({
+            message: 'Evaluation failed',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     uploadQuestionPaper,
     uploadModelAnswer,
-    uploadStudentSubmission
+    uploadStudentSubmission,
+    evaluateSubmission
 };

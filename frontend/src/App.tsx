@@ -1,7 +1,7 @@
-import Index from './page/frontPage'
+import AppRoute from './routes/Approute';
 
 function App() {
-  return <Index />
+  return <AppRoute />;
 }
 
-export default App
+export default App;
